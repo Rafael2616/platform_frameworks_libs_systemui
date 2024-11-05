@@ -15,37 +15,37 @@
  */
 package com.android.launcher3.icons;
 
-import static android.content.res.Configuration.UI_MODE_NIGHT_MASK;
-import static android.content.res.Configuration.UI_MODE_NIGHT_YES;
 import static android.content.res.Resources.ID_NULL;
+
 import static com.android.launcher3.icons.GraphicsUtils.getExpectedBitmapSize;
 import static com.android.launcher3.icons.IconProvider.ICON_TYPE_CALENDAR;
 import static com.android.launcher3.icons.IconProvider.ICON_TYPE_CLOCK;
 
+import android.annotation.ColorInt;
+import android.annotation.DrawableRes;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.BlendMode;
+import android.graphics.BlendModeColorFilter;
 import android.graphics.Canvas;
+import android.graphics.ColorFilter;
+import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.drawable.AdaptiveIconDrawable;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.InsetDrawable;
-import android.os.Process;
 import android.os.UserHandle;
 import android.util.Log;
 
-import androidx.annotation.ColorInt;
-import androidx.annotation.DrawableRes;
 import androidx.annotation.Nullable;
 import androidx.arch.core.util.Function;
-import androidx.core.graphics.ColorUtils;
 
-import com.android.launcher3.icons.BitmapInfo.Extender;
 import com.android.launcher3.icons.cache.BaseIconCache;
 
 import java.io.ByteArrayInputStream;
@@ -53,6 +53,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import android.os.Process;
 
 import app.lawnchair.icons.CustomAdaptiveIconDrawable;
 import app.lawnchair.icons.ExtendedBitmapDrawable;
@@ -66,13 +67,17 @@ public class ThemedIconDrawable extends FastBitmapDrawable {
 
     public static final String TAG = "ThemedIconDrawable";
 
-    final ThemedBitmapInfo bitmapInfo;
+    final BitmapInfo bitmapInfo;
     final int colorFg, colorBg;
 
     // The foreground/monochrome icon for the app
-    private final Drawable mMonochromeIcon;
-    private final AdaptiveIconDrawable mBgWrapper;
-    private final Rect mBadgeBounds;
+    private final Bitmap mMonoIcon;
+    private final Paint mMonoPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+
+    private final Bitmap mBgBitmap;
+    private final Paint mBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+
+    private final ColorFilter mBgFilter, mMonoFilter;
 
     protected ThemedIconDrawable(ThemedConstantState constantState) {
         super(constantState.mBitmap, constantState.colorFg);
@@ -80,32 +85,32 @@ public class ThemedIconDrawable extends FastBitmapDrawable {
         colorBg = constantState.colorBg;
         colorFg = constantState.colorFg;
 
-        mMonochromeIcon = bitmapInfo.mThemeData.loadMonochromeDrawable(colorFg);
-        mBgWrapper = new CustomAdaptiveIconDrawable(new ColorDrawable(colorBg), null);
-        mBadgeBounds = bitmapInfo.mUserBadge == null ? null :
-                new Rect(0, 0, bitmapInfo.mUserBadge.getWidth(), bitmapInfo.mUserBadge.getHeight());
+        mMonoIcon = bitmapInfo.mMono;
+        mMonoFilter = new BlendModeColorFilter(colorFg, BlendMode.SRC_IN);
+        mMonoPaint.setColorFilter(mMonoFilter);
 
-    }
-
-    @Override
-    protected void onBoundsChange(Rect bounds) {
-        super.onBoundsChange(bounds);
-        mBgWrapper.setBounds(bounds);
-        mMonochromeIcon.setBounds(bounds);
+        mBgBitmap = bitmapInfo.mWhiteShadowLayer;
+        mBgFilter = new BlendModeColorFilter(colorBg, BlendMode.SRC_IN);
+        mBgPaint.setColorFilter(mBgFilter);
     }
 
     @Override
     protected void drawInternal(Canvas canvas, Rect bounds) {
-        int count = canvas.save();
-        canvas.scale(bitmapInfo.mNormalizationScale, bitmapInfo.mNormalizationScale,
-                bounds.exactCenterX(), bounds.exactCenterY());
-        mPaint.setColor(colorBg);
-        canvas.drawPath(mBgWrapper.getIconMask(), mPaint);
-        mMonochromeIcon.draw(canvas);
-        canvas.restoreToCount(count);
-        if (mBadgeBounds != null) {
-            canvas.drawBitmap(bitmapInfo.mUserBadge, mBadgeBounds, getBounds(), mPaint);
-        }
+        canvas.drawBitmap(mBgBitmap, null, bounds, mBgPaint);
+        canvas.drawBitmap(mMonoIcon, null, bounds, mMonoPaint);
+    }
+
+    @Override
+    protected void updateFilter() {
+        super.updateFilter();
+        int alpha = mIsDisabled ? (int) (mDisabledAlpha * FULLY_OPAQUE) : FULLY_OPAQUE;
+        mBgPaint.setAlpha(alpha);
+        mBgPaint.setColorFilter(mIsDisabled ? new BlendModeColorFilter(
+                getDisabledColor(colorBg), BlendMode.SRC_IN) : mBgFilter);
+
+        mMonoPaint.setAlpha(alpha);
+        mMonoPaint.setColorFilter(mIsDisabled ? new BlendModeColorFilter(
+                getDisabledColor(colorFg), BlendMode.SRC_IN) : mMonoFilter);
     }
 
     @Override
@@ -114,17 +119,16 @@ public class ThemedIconDrawable extends FastBitmapDrawable {
     }
 
     @Override
-    public ConstantState getConstantState() {
+    public FastBitmapConstantState newConstantState() {
         return new ThemedConstantState(bitmapInfo, colorBg, colorFg);
     }
 
     static class ThemedConstantState extends FastBitmapConstantState {
 
-        final ThemedBitmapInfo bitmapInfo;
+        final BitmapInfo bitmapInfo;
         final int colorFg, colorBg;
 
-        public ThemedConstantState(ThemedBitmapInfo bitmapInfo,
-                int colorBg, int colorFg) {
+        public ThemedConstantState(BitmapInfo bitmapInfo, int colorBg, int colorFg) {
             super(bitmapInfo.icon, bitmapInfo.color);
             this.bitmapInfo = bitmapInfo;
             this.colorBg = colorBg;
@@ -132,9 +136,14 @@ public class ThemedIconDrawable extends FastBitmapDrawable {
         }
 
         @Override
-        public FastBitmapDrawable newDrawable() {
+        public FastBitmapDrawable createDrawable() {
             return new ThemedIconDrawable(this);
         }
+    }
+
+    public static FastBitmapDrawable newDrawable(BitmapInfo info, Context context) {
+        int[] colors = getColors(context);
+        return new ThemedConstantState(info, colors[0], colors[1]).newDrawable();
     }
 
     public static class ThemedBitmapInfo extends BitmapInfo {
@@ -144,14 +153,13 @@ public class ThemedIconDrawable extends FastBitmapDrawable {
         final Bitmap mUserBadge;
 
         public ThemedBitmapInfo(Bitmap icon, int color, ThemeData themeData,
-                float normalizationScale, Bitmap userBadge) {
+                                float normalizationScale, Bitmap userBadge) {
             super(icon, color);
             mThemeData = themeData;
             mNormalizationScale = normalizationScale;
             mUserBadge = userBadge;
         }
 
-        @Override
         public FastBitmapDrawable newThemedIcon(Context context) {
             int[] colors = getThemedColors(context);
             FastBitmapDrawable drawable = new ThemedConstantState(this, colors[0], colors[1])
@@ -186,9 +194,9 @@ public class ThemedIconDrawable extends FastBitmapDrawable {
         }
 
         static ThemedBitmapInfo decode(byte[] data, int color,
-                BitmapFactory.Options decodeOptions, UserHandle user, BaseIconCache iconCache,
-                Context context) {
-            try (DataInputStream dis = new DataInputStream(new ByteArrayInputStream(data))) {
+                                       BitmapFactory.Options decodeOptions, UserHandle user, BaseIconCache iconCache,
+                                       Context context) {
+            try (DataInputStream dis = new DataInputStream(new ByteArrayInputStream (data))) {
                 dis.readByte(); // type
                 float normalizationScale = dis.readFloat();
 
@@ -238,7 +246,7 @@ public class ThemedIconDrawable extends FastBitmapDrawable {
         Drawable loadMonochromeDrawable(int accentColor) {
             Drawable d = mResources.getDrawable(mResID).mutate();
             d.setTint(accentColor);
-            d = new InsetDrawable(d, .2f);
+            d = new InsetDrawable (d, .2f);
             return d;
         }
 
@@ -275,7 +283,7 @@ public class ThemedIconDrawable extends FastBitmapDrawable {
         }
     }
 
-    static class ThemedAdaptiveIcon extends CustomAdaptiveIconDrawable implements Extender {
+    static class ThemedAdaptiveIcon extends CustomAdaptiveIconDrawable implements BitmapInfo.Extender {
 
         protected final ThemeData mThemeData;
 
@@ -285,10 +293,9 @@ public class ThemedIconDrawable extends FastBitmapDrawable {
         }
 
         @Override
-        public BitmapInfo getExtendedInfo(Bitmap bitmap, int color, BaseIconFactory iconFactory,
-                float normalizationScale, UserHandle user) {
-            Bitmap userBadge = Process.myUserHandle().equals(user)
-                    ? null : iconFactory.getUserBadgeBitmap(user);
+        public BitmapInfo getExtendedInfo(Bitmap bitmap ,
+                                          int color , BaseIconFactory iconFactory, float normalizationScale) {
+            Bitmap userBadge = iconFactory.getUserBadgeBitmap(Process.myUserHandle());
             return new ThemedBitmapInfo(bitmap, color, mThemeData, normalizationScale, userBadge);
         }
 
@@ -297,17 +304,16 @@ public class ThemedIconDrawable extends FastBitmapDrawable {
             draw(canvas);
         }
 
-        @Override
         public Drawable getThemedDrawable(Context context) {
             int[] colors = getThemedColors(context);
-            Drawable bg = new ColorDrawable(colors[0]);
+            Drawable bg = new ColorDrawable (colors[0]);
             float inset = getExtraInsetFraction() / (1 + 2 * getExtraInsetFraction());
             Drawable fg = new InsetDrawable(mThemeData.loadMonochromeDrawable(colors[1]), inset);
             return new CustomAdaptiveIconDrawable(bg, fg);
         }
     }
 
-    static class ThemedBitmapIcon extends ExtendedBitmapDrawable implements Extender {
+    static class ThemedBitmapIcon extends ExtendedBitmapDrawable implements BitmapInfo.Extender {
 
         protected final ThemeData mThemeData;
 
@@ -318,9 +324,8 @@ public class ThemedIconDrawable extends FastBitmapDrawable {
 
         @Override
         public BitmapInfo getExtendedInfo(Bitmap bitmap, int color, BaseIconFactory iconFactory,
-                                          float normalizationScale, UserHandle user) {
-            Bitmap userBadge = Process.myUserHandle().equals(user)
-                    ? null : iconFactory.getUserBadgeBitmap(user);
+                                          float normalizationScale) {
+            Bitmap userBadge = iconFactory.getUserBadgeBitmap(Process.myUserHandle());
             return new ThemedBitmapInfo(bitmap, color, mThemeData, normalizationScale, userBadge);
         }
 
@@ -329,7 +334,6 @@ public class ThemedIconDrawable extends FastBitmapDrawable {
             draw(canvas);
         }
 
-        @Override
         public Drawable getThemedDrawable(Context context) {
             int[] colors = getThemedColors(context);
             Drawable bg = new ColorDrawable(colors[0]);
@@ -353,21 +357,17 @@ public class ThemedIconDrawable extends FastBitmapDrawable {
     /**
      * Get an int array representing background and foreground colors for themed icons
      */
-    @ColorInt
     public static int[] getColors(Context context) {
-        if (COLORS_LOADER != null) {
-            return COLORS_LOADER.apply(context);
-        }
         Resources res = context.getResources();
         int[] colors = new int[2];
-        if ((res.getConfiguration().uiMode & UI_MODE_NIGHT_MASK) == UI_MODE_NIGHT_YES) {
-            colors[0] = res.getColor(android.R.color.system_neutral1_800);
-            colors[1] = res.getColor(android.R.color.system_accent1_100);
-        } else {
-            colors[0] = res.getColor(android.R.color.system_accent1_100);
-            colors[1] = res.getColor(android.R.color.system_neutral2_700);
-        }
+        colors[0] = res.getColor(R.color.themed_icon_background_color);
+        colors[1] = res.getColor(R.color.themed_icon_color);
         return colors;
+    }
+
+    @Override
+    public int getIconColor() {
+        return colorFg;
     }
 
     public static Function<Context, int[]> COLORS_LOADER;

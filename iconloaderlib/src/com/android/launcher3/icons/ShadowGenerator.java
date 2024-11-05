@@ -24,6 +24,7 @@ import android.graphics.BlurMaskFilter.Blur;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.RectF;
@@ -33,7 +34,7 @@ import android.graphics.RectF;
  */
 public class ShadowGenerator {
 
-    public static boolean ENABLE_SHADOWS = true;
+    public static final boolean ENABLE_SHADOWS = true;
 
     public static final float BLUR_FACTOR = 1.68f/48;
 
@@ -57,12 +58,49 @@ public class ShadowGenerator {
         mDefaultBlurMaskFilter = new BlurMaskFilter(mIconSize * BLUR_FACTOR, Blur.NORMAL);
     }
 
+    public synchronized void drawShadow(Bitmap icon, Canvas out) {
+        if (ENABLE_SHADOWS) {
+            int[] offset = new int[2];
+            mBlurPaint.setMaskFilter(mDefaultBlurMaskFilter);
+            Bitmap shadow = icon.extractAlpha(mBlurPaint, offset);
+
+            // Draw ambient shadow
+            mDrawPaint.setAlpha(AMBIENT_SHADOW_ALPHA);
+            out.drawBitmap(shadow, offset[0], offset[1], mDrawPaint);
+
+            // Draw key shadow
+            mDrawPaint.setAlpha(KEY_SHADOW_ALPHA);
+            out.drawBitmap(shadow, offset[0], offset[1] + KEY_SHADOW_DISTANCE * mIconSize,
+                    mDrawPaint);
+        }
+    }
+
+    /** package private **/
+    void addPathShadow(Path path, Canvas out) {
+        if (ENABLE_SHADOWS) {
+            mDrawPaint.setMaskFilter(mDefaultBlurMaskFilter);
+
+            // Draw ambient shadow
+            mDrawPaint.setAlpha(AMBIENT_SHADOW_ALPHA);
+            out.drawPath(path, mDrawPaint);
+
+            // Draw key shadow
+            int save = out.save();
+            mDrawPaint.setAlpha(KEY_SHADOW_ALPHA);
+            out.translate(0, KEY_SHADOW_DISTANCE * mIconSize);
+            out.drawPath(path, mDrawPaint);
+            out.restoreToCount(save);
+
+            mDrawPaint.setMaskFilter(null);
+        }
+    }
+
     public synchronized void recreateIcon(Bitmap icon, Canvas out) {
         recreateIcon(icon, mDefaultBlurMaskFilter, AMBIENT_SHADOW_ALPHA, KEY_SHADOW_ALPHA, out);
     }
 
     public synchronized void recreateIcon(Bitmap icon, BlurMaskFilter blurMaskFilter,
-            int ambientAlpha, int keyAlpha, Canvas out) {
+                                          int ambientAlpha, int keyAlpha, Canvas out) {
         if (ENABLE_SHADOWS) {
             int[] offset = new int[2];
             mBlurPaint.setMaskFilter(blurMaskFilter);
@@ -97,7 +135,8 @@ public class ShadowGenerator {
                 scale = (HALF_DISTANCE - BLUR_FACTOR) / (HALF_DISTANCE - minSide);
             }
 
-            float bottomSpace = BLUR_FACTOR + KEY_SHADOW_DISTANCE;
+            // We are ignoring KEY_SHADOW_DISTANCE because regular icons ignore this at the moment b/298203449
+            float bottomSpace = BLUR_FACTOR;
             if (bounds.bottom < bottomSpace) {
                 scale = Math.min(scale,
                         (HALF_DISTANCE - bottomSpace) / (HALF_DISTANCE - bounds.bottom));

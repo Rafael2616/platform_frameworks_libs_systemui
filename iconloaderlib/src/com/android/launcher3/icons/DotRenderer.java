@@ -19,6 +19,7 @@ package com.android.launcher3.icons;
 import static android.graphics.Paint.ANTI_ALIAS_FLAG;
 import static android.graphics.Paint.FILTER_BITMAP_FLAG;
 
+import android.annotation.ColorInt;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -26,11 +27,11 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PathMeasure;
 import android.graphics.Rect;
+import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.util.Log;
 import android.view.ViewDebug;
 
-import androidx.annotation.ColorInt;
 import androidx.core.graphics.ColorUtils;
 import androidx.palette.graphics.Palette;
 
@@ -52,6 +53,7 @@ public class DotRenderer {
     private final Paint mCirclePaint = new Paint(ANTI_ALIAS_FLAG | FILTER_BITMAP_FLAG);
     private final Paint mTextPaint = new Paint(ANTI_ALIAS_FLAG | FILTER_BITMAP_FLAG);
 
+
     private final Bitmap mBackgroundWithShadow;
     private final float mBitmapOffset;
 
@@ -59,12 +61,15 @@ public class DotRenderer {
     private final float[] mRightDotPosition;
     private final float[] mLeftDotPosition;
 
-    private final Rect mTextRect = new Rect();
     private final boolean mDisplayCount;
     @ColorInt
     private final int mColor;
     @ColorInt
     private final int mCounterColor;
+
+    private final Rect mTextRect = new Rect();
+
+    private static final int MIN_DOT_SIZE = 1;
 
     public DotRenderer(int iconSizePx, Path iconShapePath, int pathSize, Boolean displayCount, Typeface typeface, @ColorInt int color, @ColorInt int counterColor) {
         mDisplayCount = displayCount;
@@ -153,7 +158,7 @@ public class DotRenderer {
         if (mColor != 0) {
             dotColor = mColor;
         } else {
-            dotColor = params.color;
+            dotColor = params.dotColor;
         }
 
         mCirclePaint.setColor(Color.BLACK);
@@ -181,35 +186,6 @@ public class DotRenderer {
     }
 
     /**
-     * Returns the color to use for the counter text based on the dot's background color.
-     *
-     * @param dotBackgroundColor The color of the dot background.
-     * @return The color to use on the counter text.
-     */
-    private int getCounterTextColor(int dotBackgroundColor) {
-        return new Palette.Swatch(ColorUtils.setAlphaComponent(dotBackgroundColor, 0xFF), 1).getBodyTextColor();
-    }
-
-    public static class DrawParams {
-        /** The color (possibly based on the icon) to use for the dot. */
-        @ViewDebug.ExportedProperty(category = "notification dot", formatToHexString = true)
-        public int color;
-
-        /** The color (possibly based on the icon) to use for a predicted app. */
-        @ViewDebug.ExportedProperty(category = "notification dot", formatToHexString = true)
-        public int appColor;
-        /** The bounds of the icon that the dot is drawn on top of. */
-        @ViewDebug.ExportedProperty(category = "notification dot")
-        public Rect iconBounds = new Rect();
-        /** The progress of the animation, from 0 to 1. */
-        @ViewDebug.ExportedProperty(category = "notification dot")
-        public float scale;
-        /** Whether the dot should align to the top left of the icon rather than the top right. */
-        @ViewDebug.ExportedProperty(category = "notification dot")
-        public boolean leftAlign;
-    }
-
-    /**
      * An attempt to adjust digits to their perceived center, they were tuned with Roboto but should
      * (hopefully) work with other OEM fonts as well.
      */
@@ -233,4 +209,31 @@ public class DotRenderer {
         return 1f;
     }
 
+    /**
+     * Returns the color to use for the counter text based on the dot's background color.
+     *
+     * @param dotBackgroundColor The color of the dot background.
+     * @return The color to use on the counter text.
+     */
+    private int getCounterTextColor(int dotBackgroundColor) {
+        return new Palette.Swatch(ColorUtils.setAlphaComponent(dotBackgroundColor, 0xFF), 1).getBodyTextColor();
+    }
+
+    public static class DrawParams {
+        /** The color (possibly based on the icon) to use for the dot. */
+        @ViewDebug.ExportedProperty(category = "notification dot", formatToHexString = true)
+        public int dotColor;
+        /** The color (possibly based on the icon) to use for a predicted app. */
+        @ViewDebug.ExportedProperty(category = "notification dot", formatToHexString = true)
+        public int appColor;
+        /** The bounds of the icon that the dot is drawn on top of. */
+        @ViewDebug.ExportedProperty(category = "notification dot")
+        public Rect iconBounds = new Rect();
+        /** The progress of the animation, from 0 to 1. */
+        @ViewDebug.ExportedProperty(category = "notification dot")
+        public float scale;
+        /** Whether the dot should align to the top left of the icon rather than the top right. */
+        @ViewDebug.ExportedProperty(category = "notification dot")
+        public boolean leftAlign;
+    }
 }
