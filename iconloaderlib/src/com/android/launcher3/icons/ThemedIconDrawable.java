@@ -15,6 +15,8 @@
  */
 package com.android.launcher3.icons;
 
+import static android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+import static android.content.res.Configuration.UI_MODE_NIGHT_YES;
 import static android.content.res.Resources.ID_NULL;
 
 import static com.android.launcher3.icons.GraphicsUtils.getExpectedBitmapSize;
@@ -358,10 +360,18 @@ public class ThemedIconDrawable extends FastBitmapDrawable {
      * Get an int array representing background and foreground colors for themed icons
      */
     public static int[] getColors(Context context) {
+        if (COLORS_LOADER != null) {
+            return COLORS_LOADER.apply(context);
+        }
         Resources res = context.getResources();
         int[] colors = new int[2];
-        colors[0] = res.getColor(R.color.themed_icon_background_color);
-        colors[1] = res.getColor(R.color.themed_icon_color);
+        if ((res.getConfiguration().uiMode & UI_MODE_NIGHT_MASK) == UI_MODE_NIGHT_YES) {
+            colors[0] = res.getColor(android.R.color.system_neutral1_800);
+            colors[1] = res.getColor(android.R.color.system_accent1_100);
+        } else {
+            colors[0] = res.getColor(android.R.color.system_accent1_100);
+            colors[1] = res.getColor(android.R.color.system_neutral2_700);
+        }
         return colors;
     }
 

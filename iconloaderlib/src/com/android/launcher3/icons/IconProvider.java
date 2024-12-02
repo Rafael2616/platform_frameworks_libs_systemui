@@ -68,6 +68,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 
+import app.lawnchair.icons.CustomAdaptiveIconDrawable;
+
 /**
  * Class to handle icon loading from different packages
  */
@@ -151,7 +153,7 @@ public class IconProvider {
      * Loads the icon for the provided LauncherActivityInfo
      */
     public Drawable getIcon(LauncherActivityInfo info, int iconDpi) {
-        return getIconWithOverrides(info.getApplicationInfo().packageName, iconDpi,
+        return getIconWithOverrides(info.getApplicationInfo().packageName, info.getName(), info.getUser(), iconDpi,
                 () -> info.getIcon(iconDpi));
     }
 
@@ -194,32 +196,8 @@ public class IconProvider {
      * Loads the icon for the provided activity info
      */
     public Drawable getIcon(ActivityInfo info, int iconDpi) {
-        return getIconWithOverrides(info.applicationInfo.packageName, iconDpi,
+        return getIconWithOverrides(info.applicationInfo.packageName, info.name, UserHandle.getUserHandleForUid(info.applicationInfo.uid), iconDpi,
                 () -> loadActivityInfoIcon(info, iconDpi));
-    }
-
-    @TargetApi(Build.VERSION_CODES.TIRAMISU)
-    private Drawable getIconWithOverrides(String packageName, int iconDpi,
-            Supplier<Drawable> fallback) {
-        ThemeData td = getThemeDataForPackage(packageName);
-
-        Drawable icon = null;
-        if (mCalendar != null && mCalendar.getPackageName().equals(packageName)) {
-            icon = loadCalendarDrawable(iconDpi, td);
-        } else if (mClock != null && mClock.getPackageName().equals(packageName)) {
-            icon = ClockDrawableWrapper.forPackage(mContext, mClock.getPackageName(), iconDpi, td);
-        }
-        if (icon == null) {
-            icon = fallback.get();
-            if (ATLEAST_T && icon instanceof AdaptiveIconDrawable && td != null) {
-                AdaptiveIconDrawable aid = (AdaptiveIconDrawable) icon;
-                if  (aid.getMonochrome() == null) {
-                    icon = new AdaptiveIconDrawable(aid.getBackground(),
-                            aid.getForeground(), td.loadPaddedDrawable());
-                }
-            }
-        }
-        return icon;
     }
 
     protected Drawable getIconWithOverrides(String packageName, String component, UserHandle user, int iconDpi,
@@ -319,10 +297,6 @@ public class IconProvider {
         return ClockDrawableWrapper.forPackage(mContext, mClock.getPackageName(), iconDpi);
     }
 
-    protected ThemeData getThemeDataForPackage(String packageName) {
-        return null;
-    }
-
     private Drawable loadActivityInfoIcon(ActivityInfo ai, int density) {
         final int iconRes = ai.getIconResource();
         Drawable icon = null;
@@ -339,44 +313,6 @@ public class IconProvider {
             icon = ai.loadIcon(mContext.getPackageManager());
         }
         return icon;
-    }
-
-    @TargetApi(Build.VERSION_CODES.TIRAMISU)
-    private Drawable loadCalendarDrawable(int iconDpi, @Nullable ThemeData td) {
-        PackageManager pm = mContext.getPackageManager();
-        try {
-            final Bundle metadata = pm.getActivityInfo(
-                    mCalendar,
-                    PackageManager.GET_UNINSTALLED_PACKAGES | PackageManager.GET_META_DATA)
-                    .metaData;
-            final Resources resources = pm.getResourcesForApplication(mCalendar.getPackageName());
-            final int id = getDynamicIconId(metadata, resources);
-            if (id != ID_NULL) {
-                if (DEBUG) Log.d(TAG, "Got icon #" + id);
-                Drawable drawable = resources.getDrawableForDensity(id, iconDpi, null /* theme */);
-                if (ATLEAST_T && drawable instanceof AdaptiveIconDrawable && td != null) {
-                    AdaptiveIconDrawable aid = (AdaptiveIconDrawable) drawable;
-                    if  (aid.getMonochrome() != null) {
-                        return drawable;
-                    }
-                    if ("array".equals(td.mResources.getResourceTypeName(td.mResID))) {
-                        TypedArray ta = td.mResources.obtainTypedArray(td.mResID);
-                        int monoId = ta.getResourceId(IconProvider.getDay(), ID_NULL);
-                        ta.recycle();
-                        return monoId == ID_NULL ? drawable
-                                : new AdaptiveIconDrawable(aid.getBackground(), aid.getForeground(),
-                                        new ThemeData(td.mResources, monoId).loadPaddedDrawable());
-                    }
-                }
-                return drawable;
-            }
-        } catch (PackageManager.NameNotFoundException e) {
-            if (DEBUG) {
-                Log.d(TAG, "Could not get activityinfo or resources for package: "
-                        + mCalendar.getPackageName());
-            }
-        }
-        return null;
     }
 
     /**
@@ -419,8 +355,8 @@ public class IconProvider {
      * Returns a string representation of the current system icon state
      */
     public String getSystemIconState() {
-        return (CONFIG_ICON_MASK_RES_ID == ID_NULL
-                ? "" : mContext.getResources().getString(CONFIG_ICON_MASK_RES_ID));
+        return CustomAdaptiveIconDrawable.sMaskId
+                + (isThemeEnabled() ? ",with-theme" : ",no-theme");
     }
 
     /**

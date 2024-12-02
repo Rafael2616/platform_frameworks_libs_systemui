@@ -45,6 +45,8 @@ import com.android.launcher3.util.UserIconInfo;
 import java.lang.annotation.Retention;
 import java.util.Objects;
 
+import app.lawnchair.icons.CustomAdaptiveIconDrawable;
+
 /**
  * This class will be moved to androidx library. There shouldn't be any dependency outside
  * this package.
@@ -335,7 +337,7 @@ public class BaseIconFactory implements AutoCloseable {
             return null;
         }
 
-        AdaptiveIconDrawable adaptiveIcon;
+        CustomAdaptiveIconDrawable adaptiveIcon;
         float scale;
         adaptiveIcon = wrapToAdaptiveIcon(icon, outIconBounds);
         scale = getNormalizer().getScale(adaptiveIcon, outIconBounds, null, null);
@@ -391,13 +393,13 @@ public class BaseIconFactory implements AutoCloseable {
     /**
      * Wraps the provided icon in an adaptive icon drawable
      */
-    public AdaptiveIconDrawable wrapToAdaptiveIcon(@NonNull Drawable icon,
+    public CustomAdaptiveIconDrawable wrapToAdaptiveIcon(@NonNull Drawable icon,
             @Nullable final RectF outIconBounds) {
-        if (icon instanceof AdaptiveIconDrawable aid) {
+        if (icon instanceof CustomAdaptiveIconDrawable aid) {
             return aid;
         } else {
             EmptyWrapper foreground = new EmptyWrapper();
-            AdaptiveIconDrawable dr = new AdaptiveIconDrawable(
+            CustomAdaptiveIconDrawable dr = new CustomAdaptiveIconDrawable(
                     new ColorDrawable(mWrapperBackgroundColor), foreground);
             dr.setBounds(0, 0, 1, 1);
             boolean[] outShape = new boolean[1];
@@ -528,8 +530,11 @@ public class BaseIconFactory implements AutoCloseable {
 
     @NonNull
     public static Drawable getFullResDefaultActivityIcon(final int iconDpi) {
-        return Objects.requireNonNull(Resources.getSystem().getDrawableForDensity(
-                android.R.drawable.sym_def_app_icon, iconDpi));
+        Drawable icon = Resources.getSystem().getDrawableForDensity(
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                        ? android.R.drawable.sym_def_app_icon : android.R.mipmap.sym_def_app_icon,
+                iconDpi);
+        return CustomAdaptiveIconDrawable.wrapNonNull(icon);
     }
 
     /**
