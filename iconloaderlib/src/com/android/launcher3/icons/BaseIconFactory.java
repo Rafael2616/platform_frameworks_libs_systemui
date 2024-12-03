@@ -6,6 +6,7 @@ import static android.graphics.Paint.FILTER_BITMAP_FLAG;
 import static android.graphics.drawable.AdaptiveIconDrawable.getExtraInsetFraction;
 
 import static com.android.launcher3.icons.BitmapInfo.FLAG_INSTANT;
+import static com.android.launcher3.icons.IconProvider.ICON_TYPE_DEFAULT;
 import static com.android.launcher3.icons.ShadowGenerator.BLUR_FACTOR;
 
 import static java.lang.annotation.RetentionPolicy.SOURCE;
@@ -43,9 +44,11 @@ import com.android.launcher3.util.FlagOp;
 import com.android.launcher3.util.UserIconInfo;
 
 import java.lang.annotation.Retention;
-import java.util.Objects;
 
 import app.lawnchair.icons.CustomAdaptiveIconDrawable;
+import app.lawnchair.icons.ExtendedBitmapDrawable;
+import app.lawnchair.icons.FixedScaleDrawable;
+import app.lawnchair.icons.IconPreferencesKt;
 
 /**
  * This class will be moved to androidx library. There shouldn't be any dependency outside
@@ -54,7 +57,9 @@ import app.lawnchair.icons.CustomAdaptiveIconDrawable;
 public class BaseIconFactory implements AutoCloseable {
 
     private static final int DEFAULT_WRAPPER_BACKGROUND = Color.WHITE;
-    private static final float LEGACY_ICON_SCALE = .7f * (1f / (1 + 2 * getExtraInsetFraction()));
+    public static final float LEGACY_ICON_SCALE = .7f * (1f / (1 + 2 * getExtraInsetFraction()));
+    static final boolean ATLEAST_OREO = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O;
+    static final boolean ATLEAST_P = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P;
 
     public static final int MODE_DEFAULT = 0;
     public static final int MODE_ALPHA = 1;
@@ -228,14 +233,20 @@ public class BaseIconFactory implements AutoCloseable {
      * @param icon source of the icon
      * @return a bitmap suitable for disaplaying as an icon at various system UIs.
      */
-    @TargetApi(Build.VERSION_CODES.TIRAMISU)
     @NonNull
     public BitmapInfo createBadgedIconBitmap(@NonNull Drawable icon,
             @Nullable IconOptions options) {
         float[] scale = new float[1];
-        AdaptiveIconDrawable adaptiveIcon = normalizeAndWrapToAdaptiveIcon(icon, null, scale);
+        var adaptiveIcon = normalizeAndWrapToAdaptiveIcon(icon, null, scale);
+
         Bitmap bitmap = createIconBitmap(adaptiveIcon, scale[0],
                 options == null ? MODE_WITH_SHADOW : options.mGenerationMode);
+
+        if (ATLEAST_OREO && icon instanceof AdaptiveIconDrawable) {
+            mCanvas.setBitmap(bitmap);
+            getShadowGenerator().recreateIcon(Bitmap.createBitmap(bitmap), mCanvas);
+            mCanvas.setBitmap(null);
+        }
 
         int color = (options != null && options.mExtractedColor != null)
                 ? options.mExtractedColor : mColorExtractor.findDominantColorByHue(bitmap);
@@ -243,11 +254,6 @@ public class BaseIconFactory implements AutoCloseable {
 
         if (adaptiveIcon instanceof BitmapInfo.Extender extender) {
             info = extender.getExtendedInfo(bitmap, color, this, scale[0]);
-        } else if (IconProvider.ATLEAST_T && mMonoIconEnabled) {
-            Drawable mono = getMonochromeDrawable(adaptiveIcon);
-            if (mono != null) {
-                info.setMonoIcon(createIconBitmap(mono, scale[0], MODE_ALPHA), this);
-            }
         }
         info = info.withFlags(getBitmapFlagOp(options));
         return info;
@@ -331,18 +337,58 @@ public class BaseIconFactory implements AutoCloseable {
     }
 
     @Nullable
-    protected AdaptiveIconDrawable normalizeAndWrapToAdaptiveIcon(@Nullable Drawable icon,
-            @Nullable final RectF outIconBounds, @NonNull final float[] outScale) {
+    protected Drawable normalizeAndWrapToAdaptiveIcon(@Nullable Drawable icon,
+              @Nullable final RectF outIconBounds,
+              @NonNull final float[] outScale) {
+
+        boolean shrinkNonAdaptiveIcons = ATLEAST_OREO;
+
         if (icon == null) {
             return null;
         }
 
-        CustomAdaptiveIconDrawable adaptiveIcon;
+        if (shrinkNonAdaptiveIcons) {
+            boolean isFromIconPack = ExtendedBitmapDrawable.isFromIconPack(icon);
+            shrinkNonAdaptiveIcons = !isFromIconPack && IconPreferencesKt.shouldWrapAdaptive(mContext);
+        }
+
         float scale;
-        adaptiveIcon = wrapToAdaptiveIcon(icon, outIconBounds);
-        scale = getNormalizer().getScale(adaptiveIcon, outIconBounds, null, null);
+
+        if (shrinkNonAdaptiveIcons) {
+            if (mWrapperIcon == null) {
+                Drawable background = new ColorDrawable(mContext.getColor(R.color.legacy_icon_background));
+                Drawable foreground = new FixedScaleDrawable ();
+                mWrapperIcon = new CustomAdaptiveIconDrawable(background, foreground);
+            }
+            AdaptiveIconDrawable dr = (AdaptiveIconDrawable) mWrapperIcon;
+            dr.setBounds(0, 0, 1, 1);
+            boolean[] outShape = new boolean[1];
+            scale = getNormalizer().getScale(icon, outIconBounds, dr.getIconMask(), outShape);
+            if (!(icon instanceof AdaptiveIconDrawable) && !outShape[0]) {
+                ThemedIconDrawable.ThemeData themeData = null;
+                if (icon instanceof ThemedIconDrawable.ThemedBitmapIcon) {
+                    themeData = ((ThemedIconDrawable.ThemedBitmapIcon) icon).mThemeData;
+                }
+                int wrapperBackgroundColor = IconPreferencesKt.getWrapperBackgroundColor(mContext, icon);
+
+                FixedScaleDrawable fsd = ((FixedScaleDrawable) dr.getForeground());
+                fsd.setDrawable(icon);
+                fsd.setScale(scale);
+                icon = dr;
+                if (themeData != null) {
+                    icon = themeData.wrapDrawable(icon, ICON_TYPE_DEFAULT);
+                }
+                scale = getNormalizer().getScale(icon, outIconBounds, null, null);
+
+                ((ColorDrawable) dr.getBackground()).setColor(wrapperBackgroundColor);
+            }
+        } else {
+            scale = getNormalizer().getScale(icon, outIconBounds, null, null);
+        }
+
         outScale[0] = scale;
-        return adaptiveIcon;
+        return icon;
+
     }
 
     /**
